@@ -207,24 +207,31 @@ const logout = async (req, res) => {
     const { refreshToken } = req.cookies;
 
     if (refreshToken) {
+      let decoded;
+
       try {
-        const decoded = jwt.verify(
+        decoded = jwt.verify(
           refreshToken,
           process.env.REFRESH_TOKEN_SECRET,
         );
-
-        if (decoded.jti && decoded.exp) {
-          await revokedRefreshTokenModel.updateOne(
-            { jti: decoded.jti },
-            { $setOnInsert: { jti: decoded.jti, expiresAt: new Date(decoded.exp * 1000) } },
-            { upsert: true },
-          );
-        }
       } catch (error) {
-        // Always clear the cookie, even when it is already invalid or expired.
+        decoded = null;
+      }
+
+      if (decoded?.jti && decoded.exp) {
+        await revokedRefreshTokenModel.updateOne(
+          { jti: decoded.jti },
+          {
+            $setOnInsert: {
+              jti: decoded.jti,
+              expiresAt: new Date(decoded.exp * 1000),
+            },
+          },
+          { upsert: true },
+        );
       }
     }
-    
+
     res.clearCookie("refreshToken", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -281,6 +288,12 @@ const refreshAccessToken = async (req, res) => {
         message: "User not found",
       });
     }
+    if (decoded.tokenVersion !== user.tokenVersion) {
+      return res.status(401).json({
+        success: false,
+        message: "Refresh token has been invalidated",
+      });
+    }
     const accessToken = generateAccessToken(user);
     return res.status(200).json({
       success: true,
@@ -294,10 +307,26 @@ const refreshAccessToken = async (req, res) => {
   }
 };
 
+const getCurrentUser = async (req, res) => {
+  try {
+    return res.status(200).json({
+      success: true,
+      user: req.user,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: "An error occurred while fetching the current user.",
+      error: err.message,
+    });
+  }
+};
+
 module.exports = {
   register,
   login,
   verifyEmail,
   logout,
   refreshAccessToken,
+  getCurrentUser,
 };

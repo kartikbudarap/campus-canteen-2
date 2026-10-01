@@ -137,6 +137,7 @@ const resetPassword = async (req, res) => {
     }
     //hashing of the password is done in the user model pre save hook
     user.password = newPassword;
+    user.tokenVersion += 1;
     await user.save();
     return res.status(200).json({
       success: true,
