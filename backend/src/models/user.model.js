@@ -24,8 +24,17 @@ const userSchema = new mongoose.Schema(
     role: {
       type: String,
       required: [true, "Role is required"],
-      enum: ["user", "admin", "canteen_staff"],
+      enum: ["user", "super_admin", "admin", "canteen_staff"],
       default: "user",
+    },
+    canteenId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "canteen",
+      default: null,
+      // super_admin → null (manages entire platform)
+      // admin → their college's canteen
+      // canteen_staff → their college's canteen
+      // user → null (they select canteen when browsing/ordering)
     },
 
     tokenVersion: {

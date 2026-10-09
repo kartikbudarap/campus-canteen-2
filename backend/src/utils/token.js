@@ -5,6 +5,7 @@ const generateRefreshToken = (user) => {
     const payload = {
         id: user._id,
         role: user.role,
+        canteenId: user.canteenId,
         tokenVersion: user.tokenVersion,
         jti: crypto.randomUUID(),
     };
@@ -16,6 +17,7 @@ const generateAccessToken = (user) => {
     const payload = {
         id: user._id,
         role: user.role,
+        canteenId: user.canteenId,
         tokenVersion: user.tokenVersion,
     };
     const accessToken = jwt.sign(payload, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '15m' });
