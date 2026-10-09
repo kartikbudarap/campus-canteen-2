@@ -2,6 +2,13 @@ const mongoose = require("mongoose");
 
 const foodItemSchema = new mongoose.Schema(
   {
+
+    canteenId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Canteen",
+      required: true,
+    },
+
     name: {
       type: String,
       required: true,
@@ -23,6 +30,13 @@ const foodItemSchema = new mongoose.Schema(
       },
     },
 
+    stock: {
+      type: Number,
+      required: true,
+      min: [0, "Stock cannot be negative"],
+      default: 0,
+    },
+
     category: {
       type: String,
       required: true,
@@ -32,6 +46,12 @@ const foodItemSchema = new mongoose.Schema(
     image: {
       type: String,
       trim: true,
+    },
+    
+    // This field will store the public ID of the image in Cloudinary, which is useful for deleting or updating the image later.
+    imagePublicId: {
+      type: String,
+      default: "",
     },
 
     isAvailable: {
