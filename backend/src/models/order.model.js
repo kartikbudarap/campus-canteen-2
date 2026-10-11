@@ -9,52 +9,52 @@ const orderSchema = new mongoose.Schema(
       required: true,
     },
 
+    canteenId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Canteen",
+      required: true,
+    },
+
+    assignedStaff: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
     orderNumber: {
       type: String,
       required: true,
       unique: true,
-      default: () => `ORD-${crypto.randomUUID()}`,
+      default: () => `ORD-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
     },
 
     items: {
       type: [
         {
-        foodItem: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "FoodItem",
-          required: true,
-        },
-
-        name: {
-          type: String,
-          required: true,
-        },
-
-        quantity: {
-          type: Number,
-          required: true,
-          min: 1,
-        },
-
-        price: {
-          type: Number,
-          required: true,
-          min: 0,
-          validate: {
-            validator: Number.isInteger,
-            message: "Price must be an integer in the smallest currency unit",
+          foodItem: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "FoodItem",
+            required: true,
           },
-        },
-
-        subtotal: {
-          type: Number,
-          required: true,
-          min: 0,
-          validate: {
-            validator: Number.isInteger,
-            message: "Subtotal must be an integer in the smallest currency unit",
+          name: {
+            type: String,
+            required: true,
           },
-        },
+          quantity: {
+            type: Number,
+            required: true,
+            min: 1,
+          },
+          price: {
+            type: Number,
+            required: true,
+            min: 0,
+          },
+          subtotal: {
+            type: Number,
+            required: true,
+            min: 0,
+          },
         },
       ],
       required: true,
@@ -68,10 +68,6 @@ const orderSchema = new mongoose.Schema(
       type: Number,
       required: true,
       min: 0,
-      validate: {
-        validator: Number.isInteger,
-        message: "Total amount must be an integer in the smallest currency unit",
-      },
     },
 
     status: {
@@ -84,7 +80,7 @@ const orderSchema = new mongoose.Schema(
         "completed",
         "cancelled",
       ],
-      default: "pending",
+      default: "confirmed", // Confirmed once stock is reserved!
     },
 
     paymentStatus: {
@@ -99,13 +95,15 @@ const orderSchema = new mongoose.Schema(
       required: true,
     },
 
-    pickupTime: {
-      type: Date,
+    pickupOtp: {
+      type: String,
+      default: "",
     },
 
     notes: {
       type: String,
       trim: true,
+      default: "",
     },
   },
   {
@@ -113,18 +111,8 @@ const orderSchema = new mongoose.Schema(
   }
 );
 
-orderSchema.pre("validate", function (next) {
-  this.items.forEach((item) => {
-    item.subtotal = item.price * item.quantity;
-  });
-  this.totalAmount = this.items.reduce(
-    (total, item) => total + item.subtotal,
-    0,
-  );
-  next();
-});
-
+// High performance compound indexes
+orderSchema.index({ canteenId: 1, status: 1, createdAt: -1 });
 orderSchema.index({ user: 1, createdAt: -1 });
-orderSchema.index({ status: 1, createdAt: -1 });
 
 module.exports = mongoose.model("Order", orderSchema);
