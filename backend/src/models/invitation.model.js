@@ -38,7 +38,6 @@ const invitationSchema = new mongoose.Schema(
   }
 );
 
-invitationSchema.index({ token: 1 });
 invitationSchema.index({ email: 1 });
 
 const invitationModel = mongoose.model("Invitation", invitationSchema);

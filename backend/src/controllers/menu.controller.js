@@ -1,12 +1,12 @@
 const foodItemModel = require("../models/foodItem.model");
-const canteenModel = require("../models/canteen.model");
 const { uploadToCloudinary, deleteFromCloudinary } = require("../config/cloudinary");
 
-// Admin creates food item for their canteen
+// 1. Admin creates food item for their canteen
 const createMenuItem = async (req, res) => {
   try {
     const { name, description, price, stock, category } = req.body;
 
+    // Check required fields (stock can be 0, so check !== undefined)
     if (!name || !price || stock === undefined || !category) {
       return res.status(400).json({
         success: false,
@@ -14,32 +14,34 @@ const createMenuItem = async (req, res) => {
       });
     }
 
-    // Determine canteenId: College admin uses their own canteen
-    const canteenId = req.user.role === "super_admin" 
-      ? req.body.canteenId 
-      : req.user.canteenId;
+    // Determine canteenId: College admin uses their own canteen; super_admin can specify in body
+    const canteenId =
+      req.user.role === "super_admin"
+        ? req.body.canteenId
+        : req.user.canteenId;
 
     if (!canteenId) {
       return res.status(400).json({
         success: false,
-        message: "canteenId is required",
+        message: "Canteen ID is required or admin is not bound to a canteen",
       });
     }
 
     let imageUrl = "";
     let imagePublicId = "";
 
-    // If an image was uploaded via multipart/form-data
+    // If an image file was attached via form-data
     if (req.file) {
       const uploadRes = await uploadToCloudinary(req.file.buffer);
       imageUrl = uploadRes.url;
       imagePublicId = uploadRes.publicId;
     }
 
+    // Save item to DB
     const foodItem = await foodItemModel.create({
       canteenId,
       name,
-      description,
+      description: description || "",
       price: Number(price),
       stock: Number(stock),
       category,
@@ -49,28 +51,31 @@ const createMenuItem = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: "Menu item created successfully",
+      message: "Food item created successfully",
       foodItem,
     });
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: "Failed to create menu item",
+      message: "Error creating food item",
       error: error.message,
     });
   }
 };
 
-// Public: Get menu of a specific canteen
+// 2. Public / Students view menu for a specific canteen
 const getCanteenMenu = async (req, res) => {
   try {
     const { canteenId } = req.params;
     const { category } = req.query;
 
     const filter = { canteenId };
-    
-    // Only return available items unless staff/admin is viewing
-    const isStaffOrAdmin = req.user && (req.user.role === "admin" || req.user.role === "canteen_staff");
+
+    // Only return available items unless admin/staff is viewing
+    const isStaffOrAdmin =
+      req.user &&
+      (req.user.role === "admin" || req.user.role === "canteen_staff");
+
     if (!isStaffOrAdmin) {
       filter.isAvailable = true;
     }
@@ -79,7 +84,9 @@ const getCanteenMenu = async (req, res) => {
       filter.category = category;
     }
 
-    const menu = await foodItemModel.find(filter).sort({ category: 1, name: 1 });
+    const menu = await foodItemModel
+      .find(filter)
+      .sort({ category: 1, name: 1 });
 
     return res.status(200).json({
       success: true,
@@ -95,7 +102,7 @@ const getCanteenMenu = async (req, res) => {
   }
 };
 
-// Admin updates a food item (price, stock, details, or new photo)
+// 3. Admin updates food item (price, stock, details, or new photo)
 const updateMenuItem = async (req, res) => {
   try {
     const { id } = req.params;
@@ -108,15 +115,18 @@ const updateMenuItem = async (req, res) => {
       });
     }
 
-    // Security check: Admin can only update items in their OWN canteen
-    if (req.user.role === "admin" && foodItem.canteenId.toString() !== req.user.canteenId.toString()) {
+    // Security check: Admin can ONLY update items in their OWN canteen
+    if (
+      req.user.role === "admin" &&
+      foodItem.canteenId.toString() !== req.user.canteenId.toString()
+    ) {
       return res.status(403).json({
         success: false,
-        message: "You can only update menu items for your own canteen",
+        message: "Forbidden: You can only update menu items for your own canteen",
       });
     }
 
-    // If new image uploaded, remove old image from Cloudinary and upload new
+    // If a new image was uploaded, delete old one from Cloudinary first
     if (req.file) {
       if (foodItem.imagePublicId) {
         await deleteFromCloudinary(foodItem.imagePublicId);
@@ -126,10 +136,14 @@ const updateMenuItem = async (req, res) => {
       foodItem.imagePublicId = uploadRes.publicId;
     }
 
+    // Update other fields
     const fields = ["name", "description", "price", "stock", "category", "isAvailable"];
     fields.forEach((field) => {
       if (req.body[field] !== undefined) {
-        foodItem[field] = field === "price" || field === "stock" ? Number(req.body[field]) : req.body[field];
+        foodItem[field] =
+          field === "price" || field === "stock"
+            ? Number(req.body[field])
+            : req.body[field];
       }
     });
 
@@ -149,7 +163,7 @@ const updateMenuItem = async (req, res) => {
   }
 };
 
-// Admin deletes a food item
+// 4. Admin deletes food item (and cleans up image from Cloudinary)
 const deleteMenuItem = async (req, res) => {
   try {
     const { id } = req.params;
@@ -162,15 +176,18 @@ const deleteMenuItem = async (req, res) => {
       });
     }
 
-    // Security check: Admin can only delete items in their OWN canteen
-    if (req.user.role === "admin" && foodItem.canteenId.toString() !== req.user.canteenId.toString()) {
+    // Security check: Admin can ONLY delete items in their OWN canteen
+    if (
+      req.user.role === "admin" &&
+      foodItem.canteenId.toString() !== req.user.canteenId.toString()
+    ) {
       return res.status(403).json({
         success: false,
-        message: "You can only delete menu items for your own canteen",
+        message: "Forbidden: You can only delete menu items for your own canteen",
       });
     }
 
-    // Clean up image from Cloudinary
+    // Clean up Cloudinary asset
     if (foodItem.imagePublicId) {
       await deleteFromCloudinary(foodItem.imagePublicId);
     }
