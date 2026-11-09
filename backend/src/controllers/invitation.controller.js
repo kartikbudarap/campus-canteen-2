@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const mongoose = require("mongoose");
 const invitationModel = require("../models/invitation.model");
 const userModel = require("../models/user.model");
 const canteenModel = require("../models/canteen.model");
@@ -6,7 +7,10 @@ const { sendInvitationEmail } = require("../services/email.service");
 const { generateAccessToken, generateRefreshToken } = require("../utils/token");
 const createInvitation = async (req, res) => {
   try {
-    const { email, role, canteenId } = req.body;
+    const { role, canteenId } = req.body;
+    const email = typeof req.body.email === "string"
+      ? req.body.email.trim().toLowerCase()
+      : "";
     if (!email || !role) {
       return res.status(400).json({
         success: false,
@@ -34,7 +38,7 @@ const createInvitation = async (req, res) => {
       }
     }
     // Verify canteen exists
-    const canteen = await canteenModel.findById(targetCanteenId);
+    const canteen = await canteenModel.findOne({ _id: targetCanteenId, isArchived: { $ne: true } });
     if (!canteen) {
       return res.status(404).json({
         success: false,
@@ -50,6 +54,10 @@ const createInvitation = async (req, res) => {
       });
     }
     // Check if active pending invite exists
+    await invitationModel.updateMany(
+      { email, status: "pending", expiresAt: { $lte: new Date() } },
+      { $set: { status: "expired" } }
+    );
     const existingInvite = await invitationModel.findOne({
       email,
       status: "pending",
@@ -90,9 +98,9 @@ const createInvitation = async (req, res) => {
       },
     });
   } catch (error) {
-    return res.status(500).json({
+    return res.status(error.code === 11000 ? 409 : 500).json({
       success: false,
-      message: "Failed to send invitation",
+      message: error.code === 11000 ? "An active invitation already exists" : "Failed to send invitation",
     });
   }
 };
@@ -105,38 +113,40 @@ const acceptInvitation = async (req, res) => {
         message: "Token, name, and password are required",
       });
     }
-    // Find pending invitation
-    const invitation = await invitationModel.findOne({
-      token,
-      status: "pending",
+    let newUser;
+    await mongoose.connection.transaction(async (session) => {
+      // Claim the invite and create the account together.
+      const invitation = await invitationModel.findOneAndUpdate(
+        { token, status: "pending", expiresAt: { $gt: new Date() } },
+        { $set: { status: "accepted" } },
+        { new: true, session }
+      );
+
+      if (!invitation) {
+        const error = new Error("Invalid, expired, or already used invitation token");
+        error.status = 400;
+        throw error;
+      }
+
+      const canteen = await canteenModel.exists({
+        _id: invitation.canteenId,
+        isArchived: { $ne: true },
+      }).session(session);
+      if (!canteen) {
+        const error = new Error("Canteen is unavailable");
+        error.status = 400;
+        throw error;
+      }
+
+      [newUser] = await userModel.create([{
+        name,
+        email: invitation.email,
+        password,
+        role: invitation.role,
+        canteenId: invitation.canteenId,
+        emailVerified: true,
+      }], { session });
     });
-    if (!invitation) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid or already used invitation token",
-      });
-    }
-    // Check if expired
-    if (new Date() > invitation.expiresAt) {
-      invitation.status = "expired";
-      await invitation.save();
-      return res.status(400).json({
-        success: false,
-        message: "Invitation has expired. Please ask for a new invite.",
-      });
-    }
-    // Create user (password is automatically hashed by pre-save hook)
-    const newUser = await userModel.create({
-      name,
-      email: invitation.email,
-      password,
-      role: invitation.role,
-      canteenId: invitation.canteenId,
-      emailVerified: true,
-    });
-    // Mark invitation accepted
-    invitation.status = "accepted";
-    await invitation.save();
     // Auto-login: generate tokens (canteenId will be included)
     const accessToken = generateAccessToken(newUser);
     const refreshToken = generateRefreshToken(newUser);
@@ -160,9 +170,9 @@ const acceptInvitation = async (req, res) => {
       },
     });
   } catch (error) {
-    return res.status(500).json({
+    return res.status(error.status || (error.code === 11000 ? 409 : 500)).json({
       success: false,
-      message: "Failed to accept invitation",
+      message: error.status ? error.message : "Failed to accept invitation",
     });
   }
 };

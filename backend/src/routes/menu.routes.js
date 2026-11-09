@@ -1,6 +1,12 @@
 const express = require("express");
 const router = express.Router();
 const authMiddleware = require("../middlewares/auth.middleware");
+const optionalAuth = (req, res, next) => {
+  if (!req.headers.authorization) {
+    return next();
+  }
+  return authMiddleware(req, res, next);
+};
 const authorizeRoles = require("../middlewares/role.middleware");
 const upload = require("../middlewares/upload.middleware");
 const {
@@ -11,7 +17,7 @@ const {
 } = require("../controllers/menu.controller");
 
 // Public: View a canteen's menu
-router.get("/canteen/:canteenId", getCanteenMenu);
+router.get("/canteen/:canteenId", optionalAuth, getCanteenMenu);
 
 // Admin: Create item with image upload
 router.post(

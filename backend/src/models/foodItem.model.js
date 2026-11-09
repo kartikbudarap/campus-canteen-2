@@ -34,6 +34,10 @@ const foodItemSchema = new mongoose.Schema(
       type: Number,
       required: true,
       min: [0, "Stock cannot be negative"],
+      validate: {
+        validator: Number.isSafeInteger,
+        message: "Stock must be a whole number",
+      },
       default: 0,
     },
 
@@ -58,12 +62,17 @@ const foodItemSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    isArchived: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,
   },
 );
 
+foodItemSchema.index({ canteenId: 1, isAvailable: 1 });
 foodItemSchema.index({ isAvailable: 1, category: 1 });
 
 module.exports = mongoose.model("FoodItem", foodItemSchema);

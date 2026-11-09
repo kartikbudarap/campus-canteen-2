@@ -153,10 +153,13 @@ const verifyEmail = async (req, res) => {
       });
     }
 
-    const otpRecord = await otpModel.findOne({
+    // Count this attempt in the database before checking the code.
+    const otpRecord = await otpModel.findOneAndUpdate({
       email,
       purpose: "EMAIL_VERIFICATION",
-    });
+      expiresAt: { $gt: new Date() },
+      attempts: { $lt: 5 },
+    }, { $inc: { attempts: 1 } }, { new: true });
 
     if (!otpRecord) {
       return res.status(400).json({
@@ -165,35 +168,21 @@ const verifyEmail = async (req, res) => {
       });
     }
 
-    // Check maximum attempts
-    if (otpRecord.attempts >= 5) {
-      return res.status(400).json({
-        success: false,
-        message: "Maximum OTP attempts exceeded. Please request a new OTP.",
-      });
-    }
-
-    // Check expiry
-    if (new Date() > otpRecord.expiresAt) {
-      return res.status(400).json({
-        success: false,
-        message: "OTP has expired. Please request a new one.",
-      });
-    }
-
     // Compare entered OTP with hashed OTP
     const isMatch = await bcrypt.compare(otp, otpRecord.otp);
 
     if (!isMatch) {
-      otpRecord.attempts += 1;
-      await otpRecord.save();
-
       return res.status(400).json({
         success: false,
         message: "Invalid OTP. Please try again.",
       });
     }
 
+    // Only one request may consume this exact OTP, even if a resend occurred.
+    const consumed = await otpModel.deleteOne({ _id: otpRecord._id, otp: otpRecord.otp, expiresAt: { $gt: new Date() } });
+    if (consumed.deletedCount !== 1) {
+      return res.status(400).json({ success: false, message: "OTP was already used or replaced" });
+    }
     // OTP is correct → verify user
     const user = await userModel.findOne({ email });
 
@@ -206,9 +195,6 @@ const verifyEmail = async (req, res) => {
 
     user.emailVerified = true;
     await user.save();
-
-    // OTP has been used → delete it
-    await otpModel.deleteOne({ _id: otpRecord._id });
 
     //generate a JWT token for the user after successful verification
     const accessToken = generateAccessToken(user);

@@ -39,6 +39,7 @@ const invitationSchema = new mongoose.Schema(
 );
 
 invitationSchema.index({ email: 1 });
+invitationSchema.index({ email: 1, status: 1 }, { unique: true, partialFilterExpression: { status: "pending" } });
 
 const invitationModel = mongoose.model("Invitation", invitationSchema);
 

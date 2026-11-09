@@ -18,7 +18,7 @@ const sendOTPEmail = async (email, otp) => {
 };
 
 const sendInvitationEmail = async (email, inviteToken, canteenName, role) => {
-  const frontendUrl = process.env.FRONTEND_URL ||
+  const frontendUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL ||
     (process.env.NODE_ENV === "production" ? null : "http://localhost:5173");
   if (!frontendUrl) throw new Error("FRONTEND_URL is required in production");
   const inviteLink = `${frontendUrl.replace(/\/$/, "")}/accept-invite?token=${inviteToken}`;

@@ -52,39 +52,23 @@ const verifyOtp = async (req, res) => {
         message: "Email and OTP are required",
       });
     }
-    const otpRecord = await otpModel.findOne({
+    // Count this attempt in the database before checking the code.
+    const otpRecord = await otpModel.findOneAndUpdate({
       email,
       purpose: "PASSWORD_RESET",
-    });
+      expiresAt: { $gt: new Date() },
+      attempts: { $lt: 5 },
+    }, { $inc: { attempts: 1 } }, { new: true });
     if (!otpRecord) {
       return res.status(404).json({
         success: false,
         message: "OTP not found",
       });
     }
-    // Check maximum attempts
-    if (otpRecord.attempts >= 5) {
-      return res.status(400).json({
-        success: false,
-        message: "Maximum OTP attempts exceeded. Please request a new OTP.",
-      });
-    }
-
-    // Check expiry
-    if (new Date() > otpRecord.expiresAt) {
-      return res.status(400).json({
-        success: false,
-        message: "OTP has expired. Please request a new one.",
-      });
-    }
-
     // Compare entered OTP with hashed OTP
     const isMatch = await bcrypt.compare(otp, otpRecord.otp);
 
     if (!isMatch) {
-      otpRecord.attempts += 1;
-      await otpRecord.save();
-
       return res.status(400).json({
         success: false,
         message: "Invalid OTP. Please try again.",
@@ -100,10 +84,11 @@ const verifyOtp = async (req, res) => {
       });
     }
 
+    const consumed = await otpModel.deleteOne({ _id: otpRecord._id, otp: otpRecord.otp, expiresAt: { $gt: new Date() } });
+    if (consumed.deletedCount !== 1) {
+      return res.status(400).json({ success: false, message: "OTP was already used or replaced" });
+    }
     const resetToken = generateResetToken(user); // Token valid for 10 minutes
-    
-    // OTP has been used → delete it
-    await otpModel.deleteOne({ _id: otpRecord._id });
     return res.status(200).json({
       success: true,
       message: "OTP verified successfully, you can now reset your password",
