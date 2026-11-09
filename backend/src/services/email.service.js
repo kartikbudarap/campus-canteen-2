@@ -18,8 +18,10 @@ const sendOTPEmail = async (email, otp) => {
 };
 
 const sendInvitationEmail = async (email, inviteToken, canteenName, role) => {
-  // In production, this points to your frontend URL
-  const inviteLink = `http://localhost:5173/accept-invite?token=${inviteToken}`;
+  const frontendUrl = process.env.FRONTEND_URL ||
+    (process.env.NODE_ENV === "production" ? null : "http://localhost:5173");
+  if (!frontendUrl) throw new Error("FRONTEND_URL is required in production");
+  const inviteLink = `${frontendUrl.replace(/\/$/, "")}/accept-invite?token=${inviteToken}`;
 
   await transporter.sendMail({
     from: process.env.EMAIL_USER,

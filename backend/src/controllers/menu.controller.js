@@ -38,16 +38,22 @@ const createMenuItem = async (req, res) => {
     }
 
     // Save item to DB
-    const foodItem = await foodItemModel.create({
-      canteenId,
-      name,
-      description: description || "",
-      price: Number(price),
-      stock: Number(stock),
-      category,
-      image: imageUrl,
-      imagePublicId,
-    });
+    let foodItem;
+    try {
+      foodItem = await foodItemModel.create({
+        canteenId,
+        name,
+        description: description || "",
+        price: Number(price),
+        stock: Number(stock),
+        category,
+        image: imageUrl,
+        imagePublicId,
+      });
+    } catch (error) {
+      if (imagePublicId) await deleteFromCloudinary(imagePublicId);
+      throw error;
+    }
 
     return res.status(201).json({
       success: true,
@@ -58,7 +64,6 @@ const createMenuItem = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Error creating food item",
-      error: error.message,
     });
   }
 };
@@ -97,7 +102,6 @@ const getCanteenMenu = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to fetch menu",
-      error: error.message,
     });
   }
 };
@@ -126,14 +130,15 @@ const updateMenuItem = async (req, res) => {
       });
     }
 
-    // If a new image was uploaded, delete old one from Cloudinary first
+    const previousImagePublicId = foodItem.imagePublicId;
+    let newImagePublicId = "";
+
+    // Keep the old image until the replacement and database update succeed.
     if (req.file) {
-      if (foodItem.imagePublicId) {
-        await deleteFromCloudinary(foodItem.imagePublicId);
-      }
       const uploadRes = await uploadToCloudinary(req.file.buffer);
       foodItem.image = uploadRes.url;
       foodItem.imagePublicId = uploadRes.publicId;
+      newImagePublicId = uploadRes.publicId;
     }
 
     // Update other fields
@@ -147,7 +152,15 @@ const updateMenuItem = async (req, res) => {
       }
     });
 
-    await foodItem.save();
+    try {
+      await foodItem.save();
+    } catch (error) {
+      if (newImagePublicId) await deleteFromCloudinary(newImagePublicId);
+      throw error;
+    }
+    if (newImagePublicId && previousImagePublicId) {
+      await deleteFromCloudinary(previousImagePublicId);
+    }
 
     return res.status(200).json({
       success: true,
@@ -158,7 +171,6 @@ const updateMenuItem = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to update menu item",
-      error: error.message,
     });
   }
 };
@@ -187,12 +199,10 @@ const deleteMenuItem = async (req, res) => {
       });
     }
 
-    // Clean up Cloudinary asset
+    await foodItemModel.deleteOne({ _id: id });
     if (foodItem.imagePublicId) {
       await deleteFromCloudinary(foodItem.imagePublicId);
     }
-
-    await foodItemModel.deleteOne({ _id: id });
 
     return res.status(200).json({
       success: true,
@@ -202,7 +212,6 @@ const deleteMenuItem = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to delete menu item",
-      error: error.message,
     });
   }
 };

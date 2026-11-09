@@ -32,6 +32,6 @@ const canteenSchema = new mongoose.Schema(
   },
 );
 
-const canteenModel = mongoose.model("canteen", canteenSchema);
+const canteenModel = mongoose.model("Canteen", canteenSchema);
 
 module.exports = canteenModel;

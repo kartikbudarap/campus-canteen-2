@@ -19,7 +19,7 @@ const resetPasswordMiddleware = (req, res, next) => {
     );
 
     // Make sure this token was specifically created for password reset
-    if (decoded.purpose !== "password-reset") {
+    if (decoded.purpose !== "password-reset" || !Number.isInteger(decoded.tokenVersion)) {
       return res.status(403).json({
         success: false,
         message: "Invalid reset token",
@@ -29,6 +29,7 @@ const resetPasswordMiddleware = (req, res, next) => {
     // Store the identity for resetPassword controller
     req.user = {
       email: decoded.email,
+      tokenVersion: decoded.tokenVersion,
     };
 
     next();

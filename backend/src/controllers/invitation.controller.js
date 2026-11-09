@@ -72,7 +72,12 @@ const createInvitation = async (req, res) => {
       expiresAt,
     });
     // Send email
-    await sendInvitationEmail(email, token, canteen.name, role);
+    try {
+      await sendInvitationEmail(email, token, canteen.name, role);
+    } catch (error) {
+      await invitationModel.deleteOne({ _id: invitation._id });
+      throw error;
+    }
     return res.status(201).json({
       success: true,
       message: `Invitation sent successfully to ${email}`,
@@ -88,7 +93,6 @@ const createInvitation = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to send invitation",
-      error: error.message,
     });
   }
 };
@@ -159,7 +163,6 @@ const acceptInvitation = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to accept invitation",
-      error: error.message,
     });
   }
 };

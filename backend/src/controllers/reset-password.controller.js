@@ -4,9 +4,10 @@ const { sendOTPEmail } = require("../services/email.service");
 const userModel = require("../models/user.model");
 const bcrypt = require("bcrypt");
 const { generateResetToken } = require("../utils/token");
+const normalizeEmail = (value) => typeof value === "string" ? value.trim().toLowerCase() : "";
 
 const forgotPassword = async (req, res) => {
-  const { email } = req.body;
+  const email = normalizeEmail(req.body.email);
   if (!email) {
     return res.status(400).json({
       success: false,
@@ -26,12 +27,11 @@ const forgotPassword = async (req, res) => {
   //hash the otp before saving it to the database
   const hashedOtp = await bcrypt.hash(otp, 10);
   const otpExpiry = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes from now
-  const newOtp = await otpModel.create({
-    email: email,
-    otp: hashedOtp,
-    expiresAt: otpExpiry,
-    purpose: "PASSWORD_RESET",
-  });
+  await otpModel.findOneAndUpdate(
+    { email, purpose: "PASSWORD_RESET" },
+    { $set: { otp: hashedOtp, expiresAt: otpExpiry, attempts: 0 } },
+    { upsert: true, new: true },
+  );
   await sendOTPEmail(email, otp);
 
   return res.status(200).json({
@@ -44,7 +44,8 @@ const forgotPassword = async (req, res) => {
 
 const verifyOtp = async (req, res) => {
   try {
-    const { email, otp } = req.body;
+    const { otp } = req.body;
+    const email = normalizeEmail(req.body.email);
     if (!email || !otp) {
       return res.status(400).json({
         success: false,
@@ -99,7 +100,7 @@ const verifyOtp = async (req, res) => {
       });
     }
 
-    const resetToken = generateResetToken(email); // Token valid for 10 minutes
+    const resetToken = generateResetToken(user); // Token valid for 10 minutes
     
     // OTP has been used → delete it
     await otpModel.deleteOne({ _id: otpRecord._id });
@@ -120,25 +121,31 @@ const verifyOtp = async (req, res) => {
 const resetPassword = async (req, res) => {
   try {
     const { newPassword } = req.body;
-    if (!newPassword) {
+    if (typeof newPassword !== "string" || !newPassword) {
       return res.status(400).json({
         success: false,
         message: "New password is required",
       });
     }
 
-    const email = req.user.email;
-    const user = await userModel.findOne({ email });
-    if (!user) {
-      return res.status(404).json({
+    if (newPassword.length < 6) {
+      return res.status(400).json({
         success: false,
-        message: "User not found",
+        message: "Password must be at least 6 characters long",
       });
     }
-    //hashing of the password is done in the user model pre save hook
-    user.password = newPassword;
-    user.tokenVersion += 1;
-    await user.save();
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const user = await userModel.findOneAndUpdate(
+      { email: req.user.email, tokenVersion: req.user.tokenVersion },
+      { $set: { password: hashedPassword }, $inc: { tokenVersion: 1 } },
+    );
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Reset token has already been used or invalidated",
+      });
+    }
     return res.status(200).json({
       success: true,
       message: "Password reset successfully",
@@ -146,7 +153,6 @@ const resetPassword = async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({
-      error: err.message,
       success: false,
       message: "Internal server error",
     });

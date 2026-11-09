@@ -24,10 +24,11 @@ const generateAccessToken = (user) => {
     return accessToken;
 }
 
-const generateResetToken = (email) => {
+const generateResetToken = (user) => {
     const payload = {
-        email: email,
+        email: user.email,
         purpose: 'password-reset',
+        tokenVersion: user.tokenVersion,
     };
     const resetToken = jwt.sign(payload, process.env.RESET_PASSWORD_TOKEN_SECRET, { expiresIn: '10m' });
     return resetToken;

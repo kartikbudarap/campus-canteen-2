@@ -38,7 +38,6 @@ const createCanteen = async (req,res) => {
         return res.status(500).json({
             success: false,
             message: "An error occurred while creating the canteen.",
-            error: err.message,
         });
     }
 }

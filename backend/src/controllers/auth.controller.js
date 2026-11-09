@@ -6,10 +6,29 @@ const { generateOTP } = require("../utils/generateOtp");
 const otpModel = require("../models/otp.model");
 const revokedRefreshTokenModel = require("../models/revoked-refresh-token.model");
 const { sendOTPEmail } = require("../services/email.service");
+const normalizeEmail = (value) => typeof value === "string" ? value.trim().toLowerCase() : "";
+
+const sendVerificationOtp = async (email) => {
+  const otp = generateOTP();
+  const hashedOtp = await bcrypt.hash(otp, 10);
+  await otpModel.findOneAndUpdate(
+    { email, purpose: "EMAIL_VERIFICATION" },
+    {
+      $set: {
+        otp: hashedOtp,
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+        attempts: 0,
+      },
+    },
+    { upsert: true, new: true },
+  );
+  await sendOTPEmail(email, otp);
+};
 
 const register = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email: rawEmail, password } = req.body;
+    const email = normalizeEmail(rawEmail);
     if (!name || !email || !password) {
       return res.status(400).json({
         success: false,
@@ -23,26 +42,13 @@ const register = async (req, res) => {
         message: "User already exists",
       });
     }
-    const newUser = await userModel.create({
+    await userModel.create({
       name: name,
       email: email,
       password: password,
     });
 
-    //generate OTP and send email for verification
-    const otp = generateOTP();
-    const hashedOtp = await bcrypt.hash(otp, 10); //hash the otp before storing in db
-    //store this in db with expiry time of 5 minutes
-    const otpExpiry = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes from now
-    const newOtp = await otpModel.create({
-      email: email,
-      otp: hashedOtp,
-      expiresAt: otpExpiry,
-      purpose: "EMAIL_VERIFICATION",
-    });
-
-    //now send this otp to user's email using nodemailer
-    await sendOTPEmail(email, otp);
+    await sendVerificationOtp(email);
 
     return res.status(201).json({
       success: true,
@@ -52,14 +58,42 @@ const register = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "An error occurred during registration.",
-      error: error.message,
+    });
+  }
+};
+
+const resendVerification = async (req, res) => {
+  try {
+    const email = normalizeEmail(req.body.email);
+    if (!email) {
+      return res.status(400).json({ success: false, message: "Email is required" });
+    }
+
+    const user = await userModel.findOne({ email });
+    if (!user || user.emailVerified) {
+      return res.status(400).json({
+        success: false,
+        message: "No unverified account exists for this email",
+      });
+    }
+
+    await sendVerificationOtp(user.email);
+    return res.status(200).json({
+      success: true,
+      message: "Verification OTP sent to your email",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "An error occurred while sending the verification OTP.",
     });
   }
 };
 
 const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { password } = req.body;
+    const email = normalizeEmail(req.body.email);
     if (!email || !password) {
       return res.status(400).json({
         success: false,
@@ -103,14 +137,14 @@ const login = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "An error occurred during login.",
-      error: err.message,
     });
   }
 };
 
 const verifyEmail = async (req, res) => {
   try {
-    const { email, otp } = req.body;
+    const { otp } = req.body;
+    const email = normalizeEmail(req.body.email);
 
     if (!email || !otp) {
       return res.status(400).json({
@@ -197,7 +231,6 @@ const verifyEmail = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "An error occurred during email verification.",
-      error: err.message,
     });
   }
 };
@@ -246,7 +279,6 @@ const logout = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "An error occurred during logout.",
-      error: err.message,
     });
   }
 };
@@ -317,13 +349,13 @@ const getCurrentUser = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "An error occurred while fetching the current user.",
-      error: err.message,
     });
   }
 };
 
 module.exports = {
   register,
+  resendVerification,
   login,
   verifyEmail,
   logout,

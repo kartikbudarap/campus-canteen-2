@@ -29,7 +29,7 @@ const userSchema = new mongoose.Schema(
     },
     canteenId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "canteen",
+      ref: "Canteen",
       default: null,
       // super_admin → null (manages entire platform)
       // admin → their college's canteen
